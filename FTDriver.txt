@@ -1,0 +1,72 @@
+#include "FTDriver.h"
+#include "Eigen/Dense"
+#include <chrono>
+#include <vector>
+#include <thread>
+#include <numeric>
+
+typedef std::chrono::high_resolution_clock Clock;
+using namespace std::chrono_literals;
+
+FTDriver::FTDriver()
+{
+    // Create the analog input task
+    DAQmxCreateTask("", &taskHandle);
+
+    // Add analog input channels
+    for (int32 i = 0; i < numChannels; ++i)
+        DAQmxCreateAIVoltageChan(taskHandle, channelNames[i], "", DAQmx_Val_Cfg_Default, -10.0, 10.0, DAQmx_Val_Volts, NULL);
+
+    // Start the task
+    DAQmxStartTask(taskHandle);
+
+    calibrationMatrix << -0.58438,  0.06345,  -1.38897, -47.74250, -0.59235,  47.83032,
+                          0.64305,  55.28798, -0.93153, -27.46637,  1.23786, -27.23962,
+                          69.35010, 1.87641,   64.16112, 0.78379,   71.69744, 2.19137,
+                          0.04880,  0.38786,  -1.08791, -0.20417,   1.12341, -0.15687,
+                          1.28529,  0.02731,  -0.60759,  0.32829,  -0.64487, -0.35204,
+                         -0.01151, -0.69918,  -0.00571, -0.69932,   0.00847, -0.69741;
+
+    // Calibrate the sensor
+    calibrate();
+}
+
+FTDriver::~FTDriver()
+{
+    // Stop and clear the task
+    DAQmxStopTask(taskHandle);
+    DAQmxClearTask(taskHandle);
+}
+
+Eigen::Vector<double, 6> FTDriver::readSensor()
+{
+    // Read the data from the channels
+    DAQmxReadAnalogF64(taskHandle, 1, TIMEOUT, DAQmx_Val_GroupByChannel, voltage, 6, &numRead, NULL);
+
+    // Convert voltage to force and torque measurement
+    return calibrationMatrix * Eigen::Vector<double, 6>{ voltage[0], voltage[1], voltage[2], voltage[3], voltage[4], voltage[5] } - offsetWrench;
+}
+
+void FTDriver::calibrate()
+{
+    const size_t numSamples{ 1000 };
+    std::vector<Eigen::Vector<double, 6>> sensorReading(numSamples, Eigen::Vector<double, 6>::Zero());
+
+    offsetWrench = Eigen::Vector<double, 6>::Zero();
+
+    // Read the sensor for numSamples times
+    for (auto& s : sensorReading)
+    {
+        // Read force/torque sensor
+        s = readSensor();
+
+        // Wait for the next measurement
+        std::this_thread::sleep_for(2ms);
+    }
+
+    // Calculate the average of the sensor readings
+    for (const auto& s : sensorReading)
+        offsetWrench += s;
+
+    offsetWrench /= static_cast<double>(numSamples);
+}

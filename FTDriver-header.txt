@@ -1,0 +1,39 @@
+#include "Eigen/Dense"
+
+#include "NIDAQmx.h"
+
+#define TIMEOUT 10.0
+
+
+class FTDriver
+{
+public:
+    FTDriver();
+    ~FTDriver();
+
+    /**
+    * Read force and torque measurement from the sensor
+    * 
+    * @param wrench Vector of force and torque measurement
+    */
+    Eigen::Vector<double, 6> readSensor();
+    void calibrate();
+
+
+private:
+    TaskHandle taskHandle{ 0 };
+    float64 voltage[6] = { 0.0f };
+    int32 numRead{ 0 };
+
+    // Analog input channels used by the force/torque sensor
+    const char* channelNames[6] = { "Dev1/ai0", "Dev1/ai1", "Dev1/ai2", "Dev1/ai3", "Dev1/ai4", "Dev1/ai5" };
+
+    const int32 numChannels = sizeof(channelNames) / sizeof(channelNames[0]);
+
+    // Calibration matrix for ATI Nano17
+    Eigen::Matrix<double, 6, 6> calibrationMatrix;
+
+    // Wrench offset
+    Eigen::Vector<double, 6> offsetWrench = Eigen::Vector<double, 6>::Zero();
+
+};
